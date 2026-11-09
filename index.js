@@ -1,4 +1,3 @@
-//index.js
 const express = require("express");
 const mongoose = require("mongoose");
 const cors = require("cors");
@@ -10,6 +9,8 @@ const authRoutes = require("./routes/authRoutes");
 const adminAuthRoutes = require("./routes/adminAuthRoutes");
 const adminUserRoutes = require("./routes/adminUserRoutes");
 const adminDashboardRoutes = require("./routes/adminDashboardRoutes");
+const planRoutes = require("./routes/planRoutes");
+const taskRoutes = require("./routes/taskRoutes");
 
 dotenv.config();
 
@@ -38,6 +39,8 @@ app.get("/", (req, res) => {
 });
 
 app.use("/api/auth", authRoutes);
+app.use("/api/plans", planRoutes);
+app.use("/api/tasks", taskRoutes);
 app.use("/api/admin", adminAuthRoutes);
 app.use("/api/admin", adminUserRoutes);
 app.use("/api/admin", adminDashboardRoutes);
