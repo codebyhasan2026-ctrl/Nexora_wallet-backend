@@ -1,4 +1,3 @@
-//middleware/upload.js
 const multer = require("multer");
 const cloudinary = require("cloudinary").v2;
 
@@ -20,7 +19,7 @@ const upload = multer({
   storage: storage,
   fileFilter: fileFilter,
   limits: {
-    fileSize: 100 * 1024,
+    fileSize: 5 * 1024 * 1024,
   },
 });
 

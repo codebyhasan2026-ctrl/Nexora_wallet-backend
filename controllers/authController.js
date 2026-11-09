@@ -1,24 +1,28 @@
-//controllers/authController.js
 const User = require("../models/user");
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
+const { uploadToCloudinary, deleteFromCloudinary } = require("../middleware/upload");
 
 exports.register = async (req, res) => {
   try {
-    const { name, email, phone, password } = req.body;
-    const existEmail = await User.findOne({ email });
+    const { name, username, email, phone, password, securityPassword, recomCode } = req.body;
+    const finalName = username || name;
+    const finalEmail = email || `${finalName.toLowerCase().replace(/[^a-z0-9]/g, "")}@nexorawallet.io`;
+
+    const existEmail = await User.findOne({ email: finalEmail });
     if (existEmail)
-      return res.status(400).json({ message: "User already exists" });
+      return res.status(400).json({ message: "User already exists with this username/email" });
 
     const existPhone = await User.findOne({ phone });
     if (existPhone)
-      return res.status(400).json({ message: "Phone already used" });
+      return res.status(400).json({ message: "Phone number already registered" });
 
     const user = await User.create({
-      name,
-      email,
+      name: finalName,
+      email: finalEmail,
       phone,
       password,
+      referredBy: recomCode || "",
     });
 
     return res.status(201).json({
@@ -32,15 +36,27 @@ exports.register = async (req, res) => {
 
 exports.login = async (req, res) => {
   try {
-    const { email, password } = req.body;
-    const user = await User.findOne({ email });
+    const { email, username, password } = req.body;
+    const identifier = email || username;
+
+    if (!identifier || !password) {
+      return res.status(400).json({ message: "Username/email and password required" });
+    }
+
+    const user = await User.findOne({
+      $or: [
+        { email: identifier },
+        { name: identifier },
+        { phone: identifier }
+      ]
+    });
 
     if (!user)
-      return res.status(400).json({ message: "Invalid email or password" });
+      return res.status(400).json({ message: "Invalid username or password" });
 
     const match = await bcrypt.compare(password, user.password);
     if (!match)
-      return res.status(400).json({ message: "Invalid email or password" });
+      return res.status(400).json({ message: "Invalid username or password" });
 
     const token = jwt.sign(
       { id: user._id, role: user.role },
@@ -93,5 +109,39 @@ exports.updateProfile = async (req, res) => {
     });
   } catch {
     return res.status(500).json({ message: "Failed to update profile" });
+  }
+};
+
+exports.uploadUserProfileImage = async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ message: "No image file provided" });
+    }
+
+    const userId = req.user._id;
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    if (user.profileImage && user.profileImage.includes("cloudinary")) {
+      try {
+        await deleteFromCloudinary(user.profileImage);
+      } catch (err) {}
+    }
+
+    const imageUrl = await uploadToCloudinary(req.file.buffer);
+
+    user.profileImage = imageUrl;
+    await user.save();
+
+    const safeUser = user.toObject();
+    delete safeUser.password;
+
+    return res.status(200).json({
+      message: "Profile image updated successfully",
+      profileImage: imageUrl,
+      user: safeUser,
+    });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to upload profile image" });
   }
 };

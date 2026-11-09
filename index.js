@@ -9,6 +9,7 @@ const authRoutes = require("./routes/authRoutes");
 const adminAuthRoutes = require("./routes/adminAuthRoutes");
 const adminUserRoutes = require("./routes/adminUserRoutes");
 const adminDashboardRoutes = require("./routes/adminDashboardRoutes");
+const siteSettingRoutes = require("./routes/siteSettingRoutes");
 const planRoutes = require("./routes/planRoutes");
 const taskRoutes = require("./routes/taskRoutes");
 
@@ -44,6 +45,8 @@ app.use("/api/tasks", taskRoutes);
 app.use("/api/admin", adminAuthRoutes);
 app.use("/api/admin", adminUserRoutes);
 app.use("/api/admin", adminDashboardRoutes);
+app.use("/api/site-settings", siteSettingRoutes);
+app.use("/api/admin/site-settings", siteSettingRoutes);
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
