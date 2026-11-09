@@ -12,6 +12,8 @@ const adminDashboardRoutes = require("./routes/adminDashboardRoutes");
 const siteSettingRoutes = require("./routes/siteSettingRoutes");
 const planRoutes = require("./routes/planRoutes");
 const taskRoutes = require("./routes/taskRoutes");
+const depositRoutes = require("./routes/depositRoutes");
+const paymentGatewayRoutes = require("./routes/paymentGatewayRoutes");
 
 dotenv.config();
 
@@ -42,6 +44,8 @@ app.get("/", (req, res) => {
 app.use("/api/auth", authRoutes);
 app.use("/api/plans", planRoutes);
 app.use("/api/tasks", taskRoutes);
+app.use("/api/deposits", depositRoutes);
+app.use("/api/gateways", paymentGatewayRoutes);
 app.use("/api/admin", adminAuthRoutes);
 app.use("/api/admin", adminUserRoutes);
 app.use("/api/admin", adminDashboardRoutes);

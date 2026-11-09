@@ -10,6 +10,8 @@ const planSchema = new mongoose.Schema(
     dailyAdsLimit: { type: Number, required: true },
     rewardPerAd: { type: Number, required: true },
     dailyIncome: { type: Number, default: 0 },
+    referralBonus: { type: String, default: "Upto 3 Level" },
+    image: { type: String, default: "" },
     features: [{ type: String }],
     isActive: { type: Boolean, default: true },
   },
@@ -17,4 +19,3 @@ const planSchema = new mongoose.Schema(
 );
 
 module.exports = mongoose.model("Plan", planSchema);
-
