@@ -16,6 +16,9 @@ const depositRoutes = require("./routes/depositRoutes");
 const paymentGatewayRoutes = require("./routes/paymentGatewayRoutes");
 const withdrawRoutes = require("./routes/withdrawRoutes");
 const bannerRoutes = require("./routes/bannerRoutes");
+const referralRoutes = require("./routes/referralRoutes");
+const promoCodeRoutes = require("./routes/promoCodeRoutes");
+const notificationRoutes = require("./routes/notificationRoutes");
 
 dotenv.config();
 
@@ -50,11 +53,14 @@ app.use("/api/deposits", depositRoutes);
 app.use("/api/gateways", paymentGatewayRoutes);
 app.use("/api/withdrawals", withdrawRoutes);
 app.use("/api/banners", bannerRoutes);
+app.use("/api/referrals", referralRoutes);
 app.use("/api/admin", adminAuthRoutes);
 app.use("/api/admin", adminUserRoutes);
 app.use("/api/admin", adminDashboardRoutes);
 app.use("/api/site-settings", siteSettingRoutes);
 app.use("/api/admin/site-settings", siteSettingRoutes);
+app.use("/api/promocodes", promoCodeRoutes);
+app.use("/api/notifications", notificationRoutes);
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {

@@ -284,6 +284,17 @@ exports.approveWithdrawalAdmin = async (req, res) => {
       $inc: { totalWithdraw: withdrawal.amountUSDT },
     });
 
+    try {
+      const Notification = require("../models/notification");
+      await Notification.create({
+        user: withdrawal.user,
+        title: "Withdrawal Approved & Paid",
+        message: `Your withdrawal request of $${Number(withdrawal.amountUSDT).toFixed(2)} USD has been approved and sent to your destination account.`,
+        type: "withdraw",
+        amount: withdrawal.amountUSDT,
+      });
+    } catch (e) {}
+
     return res.status(200).json({
       success: true,
       message: "Withdrawal approved successfully",

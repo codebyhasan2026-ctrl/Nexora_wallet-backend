@@ -1,5 +1,8 @@
 const Plan = require("../models/plan");
 const User = require("../models/user");
+const Commission = require("../models/commission");
+const Notification = require("../models/notification");
+const SiteSetting = require("../models/siteSetting");
 const { uploadToCloudinary } = require("../middleware/upload");
 
 const seedDefaultPlansIfNeeded = async () => {
@@ -131,6 +134,114 @@ exports.purchasePlan = async (req, res) => {
     user.lastTaskResetDate = new Date().toISOString().slice(0, 10);
 
     await user.save();
+
+    try {
+      if (user.referredBy && user.referredBy.trim()) {
+        const settings = await SiteSetting.findOne().lean();
+        const rateA = Number(settings?.commissionLevel1 ?? 10);
+        const rateB = Number(settings?.commissionLevel2 ?? 5);
+        const rateC = Number(settings?.commissionLevel3 ?? 2);
+
+        const findUpline = async (refKey) => {
+          if (!refKey) return null;
+          return await User.findOne({
+            $or: [
+              { referralCode: refKey },
+              { name: refKey },
+              { phone: refKey },
+              { email: refKey },
+            ],
+          });
+        };
+
+        const uplineA = await findUpline(user.referredBy.trim());
+        if (uplineA && uplineA._id.toString() !== user._id.toString()) {
+          const commA = Number(((plan.price * rateA) / 100).toFixed(2));
+          if (commA > 0) {
+            uplineA.balance = Number((uplineA.balance + commA).toFixed(2));
+            await uplineA.save();
+            await Commission.create({
+              recipient: uplineA._id,
+              fromUser: user._id,
+              level: "A",
+              percent: rateA,
+              amount: commA,
+              source: "plan_purchase",
+              description: `Level A commission from ${user.name} (${plan.name})`,
+            });
+            await Notification.create({
+              user: uplineA._id,
+              title: "Referral Commission Earned!",
+              message: `You earned +$${commA.toFixed(2)} USD (Level A - ${rateA}%) from ${user.name}'s ${plan.name} purchase!`,
+              type: "commission",
+              amount: commA,
+            });
+          }
+
+          if (uplineA.referredBy && uplineA.referredBy.trim()) {
+            const uplineB = await findUpline(uplineA.referredBy.trim());
+            if (
+              uplineB &&
+              uplineB._id.toString() !== uplineA._id.toString() &&
+              uplineB._id.toString() !== user._id.toString()
+            ) {
+              const commB = Number(((plan.price * rateB) / 100).toFixed(2));
+              if (commB > 0) {
+                uplineB.balance = Number((uplineB.balance + commB).toFixed(2));
+                await uplineB.save();
+                await Commission.create({
+                  recipient: uplineB._id,
+                  fromUser: user._id,
+                  level: "B",
+                  percent: rateB,
+                  amount: commB,
+                  source: "plan_purchase",
+                  description: `Level B commission from ${user.name} (${plan.name})`,
+                });
+                await Notification.create({
+                  user: uplineB._id,
+                  title: "Referral Commission Earned!",
+                  message: `You earned +$${commB.toFixed(2)} USD (Level B - ${rateB}%) from ${user.name}'s ${plan.name} purchase!`,
+                  type: "commission",
+                  amount: commB,
+                });
+              }
+
+              if (uplineB.referredBy && uplineB.referredBy.trim()) {
+                const uplineC = await findUpline(uplineB.referredBy.trim());
+                if (
+                  uplineC &&
+                  uplineC._id.toString() !== uplineB._id.toString() &&
+                  uplineC._id.toString() !== user._id.toString()
+                ) {
+                  const commC = Number(((plan.price * rateC) / 100).toFixed(2));
+                  if (commC > 0) {
+                    uplineC.balance = Number((uplineC.balance + commC).toFixed(2));
+                    await uplineC.save();
+                    await Commission.create({
+                      recipient: uplineC._id,
+                      fromUser: user._id,
+                      level: "C",
+                      percent: rateC,
+                      amount: commC,
+                      source: "plan_purchase",
+                      description: `Level C commission from ${user.name} (${plan.name})`,
+                    });
+                    await Notification.create({
+                      user: uplineC._id,
+                      title: "Referral Commission Earned!",
+                      message: `You earned +$${commC.toFixed(2)} USD (Level C - ${rateC}%) from ${user.name}'s ${plan.name} purchase!`,
+                      type: "commission",
+                      amount: commC,
+                    });
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    } catch (commErr) {}
 
     return res.status(200).json({
       success: true,

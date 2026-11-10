@@ -17,12 +17,19 @@ exports.register = async (req, res) => {
     if (existPhone)
       return res.status(400).json({ message: "Phone number already registered" });
 
+    const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+    let generatedRefCode = "NX";
+    for (let i = 0; i < 6; i++) {
+      generatedRefCode += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+
     const user = await User.create({
       name: finalName,
       email: finalEmail,
       phone,
       password,
-      referredBy: recomCode || "",
+      referralCode: generatedRefCode,
+      referredBy: recomCode ? recomCode.trim() : "",
     });
 
     return res.status(201).json({
@@ -82,9 +89,19 @@ exports.login = async (req, res) => {
 
 exports.getProfile = async (req, res) => {
   try {
+    const user = req.user;
+    if (!user.referralCode) {
+      const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+      let code = "NX";
+      for (let i = 0; i < 6; i++) {
+        code += chars.charAt(Math.floor(Math.random() * chars.length));
+      }
+      user.referralCode = code;
+      await user.save();
+    }
     return res.status(200).json({
       message: "Profile fetched successfully",
-      user: req.user,
+      user,
     });
   } catch {
     return res.status(500).json({ message: "Failed to fetch profile" });

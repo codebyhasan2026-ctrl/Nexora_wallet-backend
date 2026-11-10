@@ -257,6 +257,17 @@ exports.approveDepositAdmin = async (req, res) => {
     deposit.reviewedAt = new Date();
     await deposit.save();
 
+    try {
+      const Notification = require("../models/notification");
+      await Notification.create({
+        user: user._id,
+        title: "Deposit Approved!",
+        message: `Your deposit of $${Number(deposit.amount).toFixed(2)} USD has been approved and credited to your wallet balance.`,
+        type: "deposit",
+        amount: deposit.amount,
+      });
+    } catch (e) {}
+
     return res.status(200).json({
       success: true,
       message: `Deposit of ${deposit.amount} BDT approved! User account balance updated.`,
