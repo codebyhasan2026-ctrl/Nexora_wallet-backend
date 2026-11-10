@@ -57,21 +57,60 @@ exports.getAdminProfile = async (req, res) => {
 
 exports.updateAdminProfile = async (req, res) => {
   try {
-    const { name } = req.body;
+    const { name, email, currentPassword, newPassword, profileImage } = req.body;
 
-    const admin = await SuperAdmin.findByIdAndUpdate(
-      req.admin.id,
-      { name },
-      { new: true },
-    ).select("-password");
-
+    const admin = await SuperAdmin.findById(req.admin.id);
     if (!admin) return res.status(404).json({ message: "Admin not found" });
+
+    if (name && name.trim()) {
+      admin.name = name.trim();
+    }
+
+    if (email && email.trim() && email.trim().toLowerCase() !== admin.email) {
+      const emailExists = await SuperAdmin.findOne({
+        email: email.trim().toLowerCase(),
+        _id: { $ne: admin._id },
+      });
+      if (emailExists) {
+        return res.status(400).json({ message: "Email is already taken by another admin" });
+      }
+      admin.email = email.trim().toLowerCase();
+    }
+
+    if (profileImage !== undefined) {
+      admin.profileImage = profileImage;
+    }
+
+    if (newPassword) {
+      if (!currentPassword) {
+        return res.status(400).json({ message: "Current password is required to set a new password" });
+      }
+      const isMatch = await bcrypt.compare(currentPassword, admin.password);
+      if (!isMatch) {
+        return res.status(400).json({ message: "Current password is incorrect" });
+      }
+      if (newPassword.length < 6) {
+        return res.status(400).json({ message: "New password must be at least 6 characters" });
+      }
+      admin.password = newPassword;
+    }
+
+    await admin.save();
 
     return res.status(200).json({
       message: "Profile updated successfully",
-      admin,
+      admin: {
+        id: admin._id,
+        _id: admin._id,
+        email: admin.email,
+        name: admin.name,
+        profileImage: admin.profileImage,
+        role: admin.role,
+        createdAt: admin.createdAt,
+        updatedAt: admin.updatedAt,
+      },
     });
-  } catch {
+  } catch (error) {
     return res.status(500).json({ message: "Failed to update profile" });
   }
 };
