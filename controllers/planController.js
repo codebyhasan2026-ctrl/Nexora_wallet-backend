@@ -65,7 +65,7 @@ const seedDefaultPlansIfNeeded = async () => {
 exports.getPlans = async (req, res) => {
   try {
     await seedDefaultPlansIfNeeded();
-    const plans = await Plan.find({ isActive: true }).sort({ price: 1 });
+    const plans = await Plan.find({ isActive: true }).sort({ price: 1 }).lean();
     return res.status(200).json({ success: true, plans });
   } catch (error) {
     return res.status(500).json({ success: false, message: error.message });
@@ -75,7 +75,7 @@ exports.getPlans = async (req, res) => {
 exports.getAllPlansAdmin = async (req, res) => {
   try {
     await seedDefaultPlansIfNeeded();
-    const plans = await Plan.find().sort({ price: 1 });
+    const plans = await Plan.find().sort({ price: 1 }).lean();
     return res.status(200).json({ success: true, plans });
   } catch (error) {
     return res.status(500).json({ success: false, message: error.message });
@@ -85,7 +85,7 @@ exports.getAllPlansAdmin = async (req, res) => {
 exports.getPlanByIdAdmin = async (req, res) => {
   try {
     const { id } = req.params;
-    const plan = await Plan.findById(id);
+    const plan = await Plan.findById(id).lean();
     if (!plan) {
       return res.status(404).json({ success: false, message: "Plan not found" });
     }

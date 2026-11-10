@@ -4,8 +4,60 @@ const Plan = require("../models/plan");
 const TaskCompletion = require("../models/taskCompletion");
 const { uploadToCloudinary } = require("../middleware/upload");
 
+const taskTemplates = [
+  { title: "Visit Official Partner Telegram Channel", sponsor: "Telegram Partner", link: "https://t.me", banner: "/ad-wallet.svg" },
+  { title: "Watch Nexora Ecosystem Video Guide", sponsor: "Alpha Stream", link: "https://youtube.com", banner: "/ad-video.svg" },
+  { title: "Explore Binance Web3 Partner Hub", sponsor: "Binance Ecosystem", link: "https://binance.com", banner: "/ad-marketing.svg" },
+  { title: "Check Tether USDT Reserve Report", sponsor: "Tether Global", link: "https://tether.to", banner: "/ad-trading.svg" },
+  { title: "Visit CoinMarketCap Crypto Directory", sponsor: "CoinMarketCap", link: "https://coinmarketcap.com", banner: "/ad-wallet.svg" },
+  { title: "Review Ethereum Decentralized Hub", sponsor: "Ethereum Foundation", link: "https://ethereum.org", banner: "/ad-video.svg" },
+  { title: "Explore Polygon Ecosystem Portal", sponsor: "Polygon Labs", link: "https://polygon.technology", banner: "/ad-marketing.svg" },
+  { title: "Check Trust Wallet Web3 Gateway", sponsor: "Trust Wallet Partner", link: "https://trustwallet.com", banner: "/ad-trading.svg" },
+  { title: "Visit Arbitrum Layer-2 Portal", sponsor: "Arbitrum Network", link: "https://arbitrum.io", banner: "/ad-wallet.svg" },
+  { title: "Review Solana High-Speed Network", sponsor: "Solana Labs", link: "https://solana.com", banner: "/ad-video.svg" },
+  { title: "Explore OKX Web3 Discovery App", sponsor: "OKX Partner", link: "https://okx.com", banner: "/ad-marketing.svg" },
+  { title: "Check Bybit Crypto Rewards Pool", sponsor: "Bybit Global", link: "https://bybit.com", banner: "/ad-trading.svg" },
+  { title: "Visit KuCoin Trading Gateway", sponsor: "KuCoin Network", link: "https://kucoin.com", banner: "/ad-wallet.svg" },
+  { title: "Review Chainlink Oracle Services", sponsor: "Chainlink Ecosystem", link: "https://chain.link", banner: "/ad-video.svg" },
+  { title: "Explore Avalanche Subnet Hub", sponsor: "Avalanche Labs", link: "https://avax.network", banner: "/ad-marketing.svg" },
+  { title: "Check Uniswap Decentralized Pools", sponsor: "Uniswap Protocol", link: "https://uniswap.org", banner: "/ad-trading.svg" },
+  { title: "Visit PancakeSwap DeFi Portal", sponsor: "PancakeSwap Partner", link: "https://pancakeswap.finance", banner: "/ad-wallet.svg" },
+  { title: "Review OpenSea NFT Marketplace", sponsor: "OpenSea Global", link: "https://opensea.io", banner: "/ad-video.svg" },
+  { title: "Explore CoinGecko Market Analytics", sponsor: "CoinGecko Portal", link: "https://coingecko.com", banner: "/ad-marketing.svg" },
+  { title: "Visit Nexora VIP Premium Staking Hub", sponsor: "Nexora Network", link: "https://t.me", banner: "/ad-trading.svg" },
+];
+
+const seedDefaultTasksIfNeeded = async () => {
+  const plans = await Plan.find().lean();
+  for (const plan of plans) {
+    const existingCount = await Ad.countDocuments({ plan: plan._id });
+    const limit = Number(plan.dailyAdsLimit) || 2;
+    const needed = limit - existingCount;
+    if (needed > 0) {
+      const reward = Number(plan.rewardPerAd) || 0.75;
+      for (let i = 0; i < needed; i++) {
+        const tIndex = (existingCount + i) % taskTemplates.length;
+        const template = taskTemplates[tIndex];
+        await Ad.create({
+          title: `${template.title} [${plan.level || plan.name} #${existingCount + i + 1}]`,
+          sponsor: template.sponsor,
+          image: template.banner,
+          banner: template.banner,
+          link: template.link,
+          reward: reward,
+          duration: 5,
+          plan: plan._id,
+          isActive: true,
+        });
+      }
+    }
+  }
+};
+
 exports.getTasks = async (req, res) => {
   try {
+    await seedDefaultTasksIfNeeded();
+
     const userId = req.user._id;
     const user = await User.findById(userId);
     if (!user) {
@@ -63,14 +115,14 @@ exports.getTasks = async (req, res) => {
     const allPlanTasks = await Ad.find({
       plan: userPlanId,
       isActive: true,
-    }).sort({ createdAt: -1 });
+    }).sort({ createdAt: 1 }).lean();
 
     const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
     const recentCompletions = await TaskCompletion.find({
       user: userId,
       completedAt: { $gte: twentyFourHoursAgo },
-    });
+    }).select("task completedAt").lean();
 
     const completionMap = {};
     recentCompletions.forEach((item) => {
@@ -223,7 +275,13 @@ exports.completeTask = async (req, res) => {
 
 exports.getAllTasksAdmin = async (req, res) => {
   try {
-    const tasks = await Ad.find().populate("plan", "name level dailyAdsLimit rewardPerAd").sort({ createdAt: -1 });
+    await seedDefaultTasksIfNeeded();
+
+    const tasks = await Ad.find()
+      .populate("plan", "name level dailyAdsLimit rewardPerAd")
+      .sort({ createdAt: -1 })
+      .lean();
+
     return res.status(200).json({
       success: true,
       tasks,
@@ -235,7 +293,7 @@ exports.getAllTasksAdmin = async (req, res) => {
 
 exports.getTaskByIdAdmin = async (req, res) => {
   try {
-    const task = await Ad.findById(req.params.id).populate("plan");
+    const task = await Ad.findById(req.params.id).populate("plan").lean();
     if (!task) {
       return res.status(404).json({ success: false, message: "Task not found" });
     }
@@ -405,45 +463,65 @@ exports.deleteTaskAdmin = async (req, res) => {
 exports.getTaskHistoryAdmin = async (req, res) => {
   try {
     const { search, planId } = req.query;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const skip = (page - 1) * limit;
 
     const query = {};
     if (planId) {
       query.plan = planId;
     }
 
-    const history = await TaskCompletion.find(query)
-      .populate("user", "name email phone profileImage plan")
-      .populate("task", "title link image reward")
-      .populate("plan", "name level")
-      .sort({ completedAt: -1 })
-      .limit(100);
-
-    let filteredHistory = history;
     if (search && search.trim()) {
-      const term = search.trim().toLowerCase();
-      filteredHistory = history.filter((item) => {
-        const userName = item.user?.name?.toLowerCase() || "";
-        const userEmail = item.user?.email?.toLowerCase() || "";
-        const userPhone = item.user?.phone?.toLowerCase() || "";
-        const taskTitle = item.task?.title?.toLowerCase() || "";
-        return (
-          userName.includes(term) ||
-          userEmail.includes(term) ||
-          userPhone.includes(term) ||
-          taskTitle.includes(term)
-        );
-      });
+      const term = search.trim();
+      const matchedUsers = await User.find({
+        $or: [
+          { name: { $regex: term, $options: "i" } },
+          { email: { $regex: term, $options: "i" } },
+          { phone: { $regex: term, $options: "i" } },
+        ],
+      }).select("_id").lean();
+      const userIds = matchedUsers.map((u) => u._id);
+
+      const matchedTasks = await Ad.find({
+        title: { $regex: term, $options: "i" },
+      }).select("_id").lean();
+      const taskIds = matchedTasks.map((t) => t._id);
+
+      query.$or = [
+        { user: { $in: userIds } },
+        { task: { $in: taskIds } },
+      ];
     }
 
-    const totalCompletions = await TaskCompletion.countDocuments();
-    const totalRewardsAgg = await TaskCompletion.aggregate([
-      { $group: { _id: null, total: { $sum: "$reward" } } },
+    const [history, totalFiltered, totalCompletions, totalRewardsAgg] = await Promise.all([
+      TaskCompletion.find(query)
+        .populate("user", "name email phone profileImage plan")
+        .populate("task", "title link image reward")
+        .populate("plan", "name level")
+        .sort({ completedAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+      TaskCompletion.countDocuments(query),
+      TaskCompletion.countDocuments(),
+      TaskCompletion.aggregate([
+        { $group: { _id: null, total: { $sum: "$reward" } } },
+      ]),
     ]);
+
+    const totalPages = Math.ceil(totalFiltered / limit);
+    const hasMore = page < totalPages;
     const totalRewards = totalRewardsAgg[0]?.total || 0;
 
     return res.status(200).json({
       success: true,
-      history: filteredHistory,
+      history,
+      page,
+      limit,
+      total: totalFiltered,
+      totalPages,
+      hasMore,
       stats: {
         totalCompletions,
         totalRewards,

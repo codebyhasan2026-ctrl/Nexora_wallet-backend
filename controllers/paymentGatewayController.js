@@ -38,9 +38,9 @@ const seedDefaultGatewaysIfNeeded = async () => {
 exports.getActiveGateways = async (req, res) => {
   try {
     await seedDefaultGatewaysIfNeeded();
-    const gateways = await PaymentGateway.find({ isActive: true }).sort({
-      createdAt: 1,
-    });
+    const gateways = await PaymentGateway.find({ isActive: true })
+      .sort({ createdAt: 1 })
+      .lean();
 
     return res.status(200).json({
       success: true,
@@ -57,7 +57,7 @@ exports.getActiveGateways = async (req, res) => {
 exports.getAllGatewaysAdmin = async (req, res) => {
   try {
     await seedDefaultGatewaysIfNeeded();
-    const gateways = await PaymentGateway.find().sort({ createdAt: -1 });
+    const gateways = await PaymentGateway.find().sort({ createdAt: -1 }).lean();
 
     return res.status(200).json({
       success: true,

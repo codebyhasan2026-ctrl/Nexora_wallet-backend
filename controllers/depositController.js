@@ -99,13 +99,30 @@ exports.createDeposit = async (req, res) => {
 exports.getUserDeposits = async (req, res) => {
   try {
     const userId = req.user._id;
-    const deposits = await Deposit.find({ user: userId }).sort({
-      createdAt: -1,
-    });
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const skip = (page - 1) * limit;
+
+    const [deposits, total] = await Promise.all([
+      Deposit.find({ user: userId })
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+      Deposit.countDocuments({ user: userId }),
+    ]);
+
+    const totalPages = Math.ceil(total / limit);
+    const hasMore = page < totalPages;
 
     return res.status(200).json({
       success: true,
       deposits,
+      page,
+      limit,
+      total,
+      totalPages,
+      hasMore,
     });
   } catch (error) {
     return res.status(500).json({
@@ -118,6 +135,9 @@ exports.getUserDeposits = async (req, res) => {
 exports.getAllDepositsAdmin = async (req, res) => {
   try {
     const { status, search } = req.query;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const skip = (page - 1) * limit;
     let query = {};
 
     if (status && status !== "all") {
@@ -133,25 +153,37 @@ exports.getAllDepositsAdmin = async (req, res) => {
       ];
     }
 
-    const deposits = await Deposit.find(query)
-      .populate("user", "name email phone balance totalDeposit plan profileImage")
-      .sort({ createdAt: -1 });
-
-    const totalPending = await Deposit.countDocuments({ status: "pending" });
-    const totalApproved = await Deposit.countDocuments({ status: "approved" });
-    const totalRejected = await Deposit.countDocuments({ status: "rejected" });
-
-    const totalVolumeData = await Deposit.aggregate([
-      { $match: { status: "approved" } },
-      { $group: { _id: null, total: { $sum: "$amount" } } },
+    const [deposits, totalFiltered, totalPending, totalApproved, totalRejected, totalVolumeData] = await Promise.all([
+      Deposit.find(query)
+        .populate("user", "name email phone balance totalDeposit plan profileImage")
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+      Deposit.countDocuments(query),
+      Deposit.countDocuments({ status: "pending" }),
+      Deposit.countDocuments({ status: "approved" }),
+      Deposit.countDocuments({ status: "rejected" }),
+      Deposit.aggregate([
+        { $match: { status: "approved" } },
+        { $group: { _id: null, total: { $sum: "$amount" } } },
+      ]),
     ]);
+
     const totalVolume = totalVolumeData[0]?.total || 0;
+    const totalPages = Math.ceil(totalFiltered / limit);
+    const hasMore = page < totalPages;
 
     return res.status(200).json({
       success: true,
       deposits,
+      page,
+      limit,
+      total: totalFiltered,
+      totalPages,
+      hasMore,
       stats: {
-        total: deposits.length,
+        total: totalFiltered,
         totalPending,
         totalApproved,
         totalRejected,
@@ -168,10 +200,9 @@ exports.getAllDepositsAdmin = async (req, res) => {
 
 exports.getDepositByIdAdmin = async (req, res) => {
   try {
-    const deposit = await Deposit.findById(req.params.id).populate(
-      "user",
-      "name email phone balance totalDeposit plan profileImage"
-    );
+    const deposit = await Deposit.findById(req.params.id)
+      .populate("user", "name email phone balance totalDeposit plan profileImage")
+      .lean();
 
     if (!deposit) {
       return res.status(404).json({
