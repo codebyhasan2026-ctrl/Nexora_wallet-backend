@@ -123,6 +123,15 @@ const siteSettingSchema = new mongoose.Schema(
       type: String,
       default: "/plans",
     },
+    currency: {
+      type: String,
+      enum: ["USDT", "BDT"],
+      default: "USDT",
+    },
+    currencySymbol: {
+      type: String,
+      default: "$",
+    },
   },
   { timestamps: true }
 );

@@ -277,7 +277,7 @@ exports.approveWithdrawalAdmin = async (req, res) => {
     withdrawal.trxId = trxId ? trxId.trim() : "";
     withdrawal.adminNote = adminNote ? adminNote.trim() : "";
     withdrawal.reviewedAt = new Date();
-    withdrawal.reviewedBy = req.user._id;
+    withdrawal.reviewedBy = req.admin?.id || req.user?._id;
     await withdrawal.save();
 
     await User.findByIdAndUpdate(withdrawal.user, {
@@ -330,12 +330,23 @@ exports.rejectWithdrawalAdmin = async (req, res) => {
     withdrawal.status = "rejected";
     withdrawal.adminNote = adminNote ? adminNote.trim() : "Declined by admin";
     withdrawal.reviewedAt = new Date();
-    withdrawal.reviewedBy = req.user._id;
+    withdrawal.reviewedBy = req.admin?.id || req.user?._id;
     await withdrawal.save();
 
     await User.findByIdAndUpdate(withdrawal.user, {
       $inc: { balance: withdrawal.amountUSDT },
     });
+
+    try {
+      const Notification = require("../models/notification");
+      await Notification.create({
+        user: withdrawal.user,
+        title: "Withdrawal Rejected & Refunded",
+        message: `Your withdrawal request of $${Number(withdrawal.amountUSDT).toFixed(2)} USD was rejected (${withdrawal.adminNote}) and refunded to your wallet balance.`,
+        type: "withdraw",
+        amount: withdrawal.amountUSDT,
+      });
+    } catch (e) {}
 
     return res.status(200).json({
       success: true,

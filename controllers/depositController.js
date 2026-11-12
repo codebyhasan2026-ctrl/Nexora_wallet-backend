@@ -1,7 +1,72 @@
+const mongoose = require("mongoose");
 const Deposit = require("../models/deposit");
 const User = require("../models/user");
+const Commission = require("../models/commission");
+const Notification = require("../models/notification");
 const SiteSetting = require("../models/siteSetting");
 const { uploadToCloudinary } = require("../middleware/upload");
+
+const findUplineUser = async (refKey) => {
+  const key = refKey?.trim();
+  if (!key) return null;
+  const conditions = [
+    { referralCode: key },
+    { name: key },
+    { phone: key },
+    { email: key },
+  ];
+  if (mongoose.Types.ObjectId.isValid(key)) {
+    conditions.push({ _id: key });
+  }
+  return User.findOne({ $or: conditions });
+};
+
+const awardDepositCommissions = async (depositor, depositAmount, settings) => {
+  if (!depositor.referredBy || !depositor.referredBy.trim()) return;
+
+  const tiers = [
+    { level: "A", rate: Number(settings?.commissionLevel1 ?? 10) },
+    { level: "B", rate: Number(settings?.commissionLevel2 ?? 5) },
+    { level: "C", rate: Number(settings?.commissionLevel3 ?? 2) },
+  ];
+  const symbol = settings?.currencySymbol || "$";
+  const currCode = settings?.currency || "USDT";
+  const visitedIds = new Set([depositor._id.toString()]);
+  let currentRefKey = depositor.referredBy.trim();
+
+  for (const tier of tiers) {
+    if (!currentRefKey) break;
+    const upline = await findUplineUser(currentRefKey);
+    if (!upline || visitedIds.has(upline._id.toString())) break;
+    visitedIds.add(upline._id.toString());
+
+    const commAmount = Number(((Number(depositAmount) * tier.rate) / 100).toFixed(2));
+    if (commAmount > 0) {
+      upline.balance = Number((Number(upline.balance || 0) + commAmount).toFixed(2));
+      await upline.save();
+
+      await Commission.create({
+        recipient: upline._id,
+        fromUser: depositor._id,
+        level: tier.level,
+        percent: tier.rate,
+        amount: commAmount,
+        source: "deposit",
+        description: `Level ${tier.level} deposit commission from ${depositor.name}`,
+      });
+
+      await Notification.create({
+        user: upline._id,
+        title: "Referral Commission Earned!",
+        message: `You earned +${symbol}${commAmount.toFixed(2)} ${currCode} (Level ${tier.level} - ${tier.rate}%) from ${depositor.name}'s deposit!`,
+        type: "commission",
+        amount: commAmount,
+      });
+    }
+
+    currentRefKey = upline.referredBy ? upline.referredBy.trim() : "";
+  }
+};
 
 exports.createDeposit = async (req, res) => {
   try {
@@ -257,20 +322,27 @@ exports.approveDepositAdmin = async (req, res) => {
     deposit.reviewedAt = new Date();
     await deposit.save();
 
+    const settings = await SiteSetting.findOne().lean();
+    const symbol = settings?.currencySymbol || "$";
+    const currCode = settings?.currency || "USDT";
+
     try {
-      const Notification = require("../models/notification");
       await Notification.create({
         user: user._id,
         title: "Deposit Approved!",
-        message: `Your deposit of $${Number(deposit.amount).toFixed(2)} USD has been approved and credited to your wallet balance.`,
+        message: `Your deposit of ${symbol}${Number(deposit.amount).toFixed(2)} ${currCode} has been approved and credited to your wallet balance.`,
         type: "deposit",
         amount: deposit.amount,
       });
     } catch (e) {}
 
+    try {
+      await awardDepositCommissions(user, deposit.amount, settings);
+    } catch (e) {}
+
     return res.status(200).json({
       success: true,
-      message: `Deposit of ${deposit.amount} BDT approved! User account balance updated.`,
+      message: `Deposit of ${symbol}${deposit.amount} ${currCode} approved! User account balance updated.`,
       deposit,
       newBalance: user.balance,
     });

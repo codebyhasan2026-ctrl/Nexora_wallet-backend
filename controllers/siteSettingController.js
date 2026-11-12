@@ -100,6 +100,8 @@ exports.updateSiteSettings = async (req, res) => {
       "popupImage",
       "popupButtonText",
       "popupButtonLink",
+      "currency",
+      "currencySymbol",
     ];
 
     updatableFields.forEach((field) => {
@@ -107,6 +109,11 @@ exports.updateSiteSettings = async (req, res) => {
         settings[field] = req.body[field];
       }
     });
+
+    if (req.body.currency !== undefined) {
+      settings.currency = req.body.currency === "BDT" ? "BDT" : "USDT";
+      settings.currencySymbol = settings.currency === "BDT" ? "৳" : "$";
+    }
 
     await settings.save();
 

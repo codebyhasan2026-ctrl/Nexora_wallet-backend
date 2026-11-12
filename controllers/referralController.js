@@ -95,7 +95,7 @@ exports.getMyReferralTeam = async (req, res) => {
     const calcTier = (userList, tierLetter, tierRate) => {
       const totalInvite = userList.length;
       const validUsers = userList.filter(
-        (u) => u.plan && u.plan !== "No Plan"
+        (u) => Number(u.totalDeposit || 0) > 0
       ).length;
       const totalRecharge = userList.reduce(
         (sum, u) => sum + Number(u.totalDeposit || 0),
@@ -112,6 +112,7 @@ exports.getMyReferralTeam = async (req, res) => {
         level: tierLetter,
         plan: u.plan || "Free",
         invest: Number(u.totalDeposit || 0).toFixed(2),
+        hasDeposited: Number(u.totalDeposit || 0) > 0,
         joinDate: u.createdAt,
       }));
 
