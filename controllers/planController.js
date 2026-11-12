@@ -1,3 +1,4 @@
+const mongoose = require("mongoose");
 const Plan = require("../models/plan");
 const User = require("../models/user");
 const { uploadToCloudinary } = require("../middleware/upload");
@@ -100,19 +101,29 @@ exports.purchasePlan = async (req, res) => {
     const userId = req.user._id;
     const { planId } = req.body;
 
-    const plan = await Plan.findById(planId);
+    let plan = null;
+    if (planId && mongoose.isValidObjectId(planId)) {
+      plan = await Plan.findById(planId);
+    }
+    if (!plan && planId) {
+      plan = await Plan.findOne({
+        $or: [{ name: planId }, { level: planId }],
+      });
+    }
+
     if (!plan || !plan.isActive) {
-      return res.status(404).json({ message: "Plan not found or inactive" });
+      return res.status(404).json({ success: false, message: "Plan not found or inactive" });
     }
 
     const user = await User.findById(userId);
     if (!user) {
-      return res.status(404).json({ message: "User not found" });
+      return res.status(404).json({ success: false, message: "User not found" });
     }
 
     if (user.balance < plan.price) {
       return res.status(400).json({
-        message: "Insufficient balance! Please deposit USDT to your wallet.",
+        success: false,
+        message: "Insufficient balance! Please deposit to your wallet.",
       });
     }
 
@@ -122,7 +133,7 @@ exports.purchasePlan = async (req, res) => {
     user.planValidity = `${plan.validity} Days`;
 
     const expiresAt = new Date();
-    expiresAt.setDate(expiresAt.getDate() + plan.validity);
+    expiresAt.setDate(expiresAt.getDate() + Number(plan.validity || 30));
     user.planExpiresAt = expiresAt;
 
     user.dailyAdsLimit = plan.dailyAdsLimit;
@@ -138,7 +149,9 @@ exports.purchasePlan = async (req, res) => {
       user: {
         balance: user.balance,
         plan: user.plan,
+        planId: user.planId,
         planValidity: user.planValidity,
+        planExpiresAt: user.planExpiresAt,
         dailyAdsLimit: user.dailyAdsLimit,
         remainTasks: user.remainTasks,
         completeTasks: user.completeTasks,

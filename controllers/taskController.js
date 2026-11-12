@@ -95,6 +95,13 @@ exports.getTasks = async (req, res) => {
     }
 
     if (user.planExpiresAt && new Date(user.planExpiresAt) < new Date()) {
+      user.plan = "No Plan";
+      user.planId = undefined;
+      user.planValidity = "Expired";
+      user.dailyAdsLimit = 0;
+      user.remainTasks = 0;
+      await user.save();
+
       return res.status(200).json({
         success: true,
         hasActivePlan: false,
@@ -103,8 +110,8 @@ exports.getTasks = async (req, res) => {
         availableTasks: [],
         completedTasks: [],
         stats: {
-          plan: user.plan,
-          dailyLimit: user.dailyAdsLimit || 0,
+          plan: "No Plan",
+          dailyLimit: 0,
           completedCount: 0,
           remainingCount: 0,
           balance: user.balance || 0,
@@ -138,7 +145,7 @@ exports.getTasks = async (req, res) => {
         const nextTime = new Date(new Date(completedTime).getTime() + 24 * 60 * 60 * 1000);
         const remainingMs = Math.max(0, nextTime.getTime() - Date.now());
         completedTasks.push({
-          ...task.toObject(),
+          ...task,
           completedAt: completedTime,
           nextAvailableAt: nextTime,
           remainingMs,
@@ -238,18 +245,27 @@ exports.completeTask = async (req, res) => {
 
     if (existingCompletion) {
       const nextTime = new Date(new Date(existingCompletion.completedAt).getTime() + 24 * 60 * 60 * 1000);
-      const remainingHours = Math.ceil((nextTime.getTime() - Date.now()) / (1000 * 60 * 60));
+      const remainingMs = Math.max(0, nextTime.getTime() - Date.now());
+      const remainingHours = Math.ceil(remainingMs / (1000 * 60 * 60));
       return res.status(400).json({
         success: false,
         message: `You already completed this task! It will become available again in ${remainingHours} hour(s).`,
       });
     }
 
-    const reward = Number(task.reward) || 0.75;
-    user.balance = Number((user.balance + reward).toFixed(2));
-    user.completeTasks = (user.completeTasks || 0) + 1;
-    await user.save();
+    const dailyLimit = Number(user.dailyAdsLimit) || (task.plan?.dailyAdsLimit ? Number(task.plan.dailyAdsLimit) : 2);
+    const todayCount = await TaskCompletion.countDocuments({
+      user: userId,
+      completedAt: { $gte: twentyFourHoursAgo },
+    });
+    if (todayCount >= dailyLimit) {
+      return res.status(400).json({
+        success: false,
+        message: "You have already reached your daily task limit for your plan.",
+      });
+    }
 
+    const reward = Number(task.reward) || 0.75;
     await TaskCompletion.create({
       user: userId,
       task: task._id,
@@ -257,6 +273,10 @@ exports.completeTask = async (req, res) => {
       reward,
       completedAt: new Date(),
     });
+
+    user.balance = Number((user.balance + reward).toFixed(2));
+    user.completeTasks = (user.completeTasks || 0) + 1;
+    await user.save();
 
     return res.status(200).json({
       success: true,

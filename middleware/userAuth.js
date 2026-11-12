@@ -12,7 +12,7 @@ module.exports = async (req, res, next) => {
 
     const user = await User.findById(decoded.id).select("-password");
 
-    if (!user) return res.status(404).json({ message: "User not found" });
+    if (!user) return res.status(401).json({ message: "Invalid user session, please login again" });
 
     if (user.isSuspended)
       return res.status(403).json({ message: "Account Suspended" });

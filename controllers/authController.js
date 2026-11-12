@@ -90,6 +90,14 @@ exports.login = async (req, res) => {
 exports.getProfile = async (req, res) => {
   try {
     const user = req.user;
+    if (user.planExpiresAt && new Date(user.planExpiresAt) < new Date() && user.plan && user.plan !== "No Plan") {
+      user.plan = "No Plan";
+      user.planId = undefined;
+      user.planValidity = "Expired";
+      user.dailyAdsLimit = 0;
+      user.remainTasks = 0;
+      await user.save();
+    }
     if (!user.referralCode) {
       const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
       let code = "NX";
