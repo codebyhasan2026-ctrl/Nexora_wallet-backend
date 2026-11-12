@@ -36,6 +36,11 @@ const siteSettingSchema = new mongoose.Schema(
       default: "",
       trim: true,
     },
+    youtubeTutorial: {
+      type: String,
+      default: "",
+      trim: true,
+    },
     supportEmail: {
       type: String,
       default: "support@nexora.io",

@@ -5,29 +5,13 @@ const SiteSetting = require("../models/siteSetting");
 exports.createWithdraw = async (req, res) => {
   try {
     const userId = req.user._id;
-    const { method, accountNumber, accountType, amount, amountUSD } = req.body;
+    const { method, accountNumber, accountType, amount, amountBDT, amountUSD } = req.body;
 
-    let withdrawAmountUSDT = 0;
-    let withdrawAmountBDT = 0;
-
-    if (amountUSD !== undefined && amountUSD !== null && Number(amountUSD) > 0) {
-      withdrawAmountUSDT = Number(Number(amountUSD).toFixed(2));
-      withdrawAmountBDT = Number((withdrawAmountUSDT * 125).toFixed(2));
-    } else if (amount !== undefined && amount !== null && Number(amount) > 0) {
-      const rawNum = Number(amount);
-      if (rawNum <= 1000) {
-        withdrawAmountUSDT = Number(rawNum.toFixed(2));
-        withdrawAmountBDT = Number((withdrawAmountUSDT * 125).toFixed(2));
-      } else {
-        withdrawAmountBDT = Number(rawNum.toFixed(2));
-        withdrawAmountUSDT = Number((withdrawAmountBDT / 125).toFixed(2));
-      }
-    }
-
-    if (!withdrawAmountUSDT || isNaN(withdrawAmountUSDT) || withdrawAmountUSDT <= 0) {
+    const withdrawAmount = Number(amount ?? amountBDT ?? amountUSD);
+    if (!withdrawAmount || isNaN(withdrawAmount) || withdrawAmount <= 0) {
       return res.status(400).json({
         success: false,
-        message: "Please enter a valid withdrawal amount in USD ($)",
+        message: "Please enter a valid withdrawal amount",
       });
     }
 
@@ -39,24 +23,21 @@ exports.createWithdraw = async (req, res) => {
     }
 
     const settings = await SiteSetting.findOne().lean();
-    const rawMin = Number(settings?.minWithdraw) || 300;
-    const rawMax = Number(settings?.maxWithdraw) || 50000;
+    const minWithdraw = Number(settings?.minWithdraw) || 300;
+    const maxWithdraw = Number(settings?.maxWithdraw) || 50000;
     const feePercent = Number(settings?.withdrawFeePercent) || 0;
 
-    const minWithdrawUSD = rawMin >= 100 ? Number((rawMin / 125).toFixed(2)) : rawMin;
-    const maxWithdrawUSD = rawMax >= 100 ? Number((rawMax / 125).toFixed(2)) : rawMax;
-
-    if (withdrawAmountUSDT < minWithdrawUSD) {
+    if (withdrawAmount < minWithdraw) {
       return res.status(400).json({
         success: false,
-        message: `Minimum withdrawal amount is $${minWithdrawUSD}`,
+        message: `Minimum withdrawal amount is ${minWithdraw} BDT`,
       });
     }
 
-    if (withdrawAmountUSDT > maxWithdrawUSD) {
+    if (withdrawAmount > maxWithdraw) {
       return res.status(400).json({
         success: false,
-        message: `Maximum withdrawal amount is $${maxWithdrawUSD}`,
+        message: `Maximum withdrawal amount is ${maxWithdraw} BDT`,
       });
     }
 
@@ -75,19 +56,18 @@ exports.createWithdraw = async (req, res) => {
       });
     }
 
-    if (Number(user.balance) < withdrawAmountUSDT) {
+    if (Number(user.balance) < withdrawAmount) {
       return res.status(400).json({
         success: false,
         message: "Insufficient balance for this withdrawal",
       });
     }
 
-    const feeUSDT = Number(((withdrawAmountUSDT * feePercent) / 100).toFixed(2));
-    const finalAmountUSDT = Number((withdrawAmountUSDT - feeUSDT).toFixed(2));
-    const feeBDT = Number(((withdrawAmountBDT * feePercent) / 100).toFixed(2));
-    const finalAmountBDT = Number((withdrawAmountBDT - feeBDT).toFixed(2));
+    const feeBDT = Number(((withdrawAmount * feePercent) / 100).toFixed(2));
+    const finalAmountBDT = Number((withdrawAmount - feeBDT).toFixed(2));
+    const amountUSDT = Number((withdrawAmount / 125).toFixed(2));
 
-    user.balance = Number((user.balance - withdrawAmountUSDT).toFixed(4));
+    user.balance = Number((user.balance - withdrawAmount).toFixed(2));
     await user.save();
 
     const withdrawal = await Withdraw.create({
@@ -95,8 +75,8 @@ exports.createWithdraw = async (req, res) => {
       method: (method || "bkash").toLowerCase(),
       accountNumber: accountNumber.trim(),
       accountType: accountType || "Personal",
-      amount: withdrawAmountBDT,
-      amountUSDT: withdrawAmountUSDT,
+      amount: withdrawAmount,
+      amountUSDT,
       fee: feeBDT,
       finalAmount: finalAmountBDT,
       status: "pending",
@@ -280,8 +260,9 @@ exports.approveWithdrawalAdmin = async (req, res) => {
     withdrawal.reviewedBy = req.admin?.id || req.user?._id;
     await withdrawal.save();
 
+    const withdrawAmt = Number(withdrawal.amount || withdrawal.amountUSDT || 0);
     await User.findByIdAndUpdate(withdrawal.user, {
-      $inc: { totalWithdraw: withdrawal.amountUSDT },
+      $inc: { totalWithdraw: withdrawAmt },
     });
 
     try {
@@ -289,9 +270,9 @@ exports.approveWithdrawalAdmin = async (req, res) => {
       await Notification.create({
         user: withdrawal.user,
         title: "Withdrawal Approved & Paid",
-        message: `Your withdrawal request of $${Number(withdrawal.amountUSDT).toFixed(2)} USD has been approved and sent to your destination account.`,
+        message: `Your withdrawal request of ৳${withdrawAmt.toFixed(2)} has been approved and sent to your destination account.`,
         type: "withdraw",
-        amount: withdrawal.amountUSDT,
+        amount: withdrawAmt,
       });
     } catch (e) {}
 
@@ -333,8 +314,9 @@ exports.rejectWithdrawalAdmin = async (req, res) => {
     withdrawal.reviewedBy = req.admin?.id || req.user?._id;
     await withdrawal.save();
 
+    const refundAmt = Number(withdrawal.amount || withdrawal.amountUSDT || 0);
     await User.findByIdAndUpdate(withdrawal.user, {
-      $inc: { balance: withdrawal.amountUSDT },
+      $inc: { balance: refundAmt },
     });
 
     try {
@@ -342,9 +324,9 @@ exports.rejectWithdrawalAdmin = async (req, res) => {
       await Notification.create({
         user: withdrawal.user,
         title: "Withdrawal Rejected & Refunded",
-        message: `Your withdrawal request of $${Number(withdrawal.amountUSDT).toFixed(2)} USD was rejected (${withdrawal.adminNote}) and refunded to your wallet balance.`,
+        message: `Your withdrawal request of ৳${refundAmt.toFixed(2)} was rejected (${withdrawal.adminNote}) and refunded to your wallet balance.`,
         type: "withdraw",
-        amount: withdrawal.amountUSDT,
+        amount: refundAmt,
       });
     } catch (e) {}
 

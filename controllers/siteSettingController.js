@@ -79,6 +79,7 @@ exports.updateSiteSettings = async (req, res) => {
       "telegramGroup",
       "whatsappNumber",
       "facebookPage",
+      "youtubeTutorial",
       "supportEmail",
       "bkashNumber",
       "nagadNumber",

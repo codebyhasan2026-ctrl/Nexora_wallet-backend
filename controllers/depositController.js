@@ -82,20 +82,36 @@ exports.createDeposit = async (req, res) => {
     }
 
     const settings = await SiteSetting.findOne();
-    const minDeposit = settings?.minDeposit ?? 200;
-    const maxDeposit = settings?.maxDeposit ?? 50000;
+    const minDeposit = Number(settings?.minDeposit) || 200;
+    const maxDeposit = Number(settings?.maxDeposit) || 50000;
 
-    if (parsedAmount < minDeposit) {
+    const PaymentGateway = require("../models/paymentGateway");
+    let effectiveMin = minDeposit;
+    let effectiveMax = maxDeposit;
+    if (gateway) {
+      const matchedGateway = await PaymentGateway.findOne({
+        name: new RegExp(`^${gateway}$`, "i"),
+        isActive: true,
+      }).lean();
+      if (matchedGateway) {
+        if (matchedGateway.minDeposit) effectiveMin = Number(matchedGateway.minDeposit);
+        if (matchedGateway.maxDeposit && Number(matchedGateway.maxDeposit) >= effectiveMin) {
+          effectiveMax = Number(matchedGateway.maxDeposit);
+        }
+      }
+    }
+
+    if (parsedAmount < effectiveMin) {
       return res.status(400).json({
         success: false,
-        message: `Minimum deposit amount is ${minDeposit} BDT`,
+        message: `Minimum deposit amount is ${effectiveMin} BDT`,
       });
     }
 
-    if (parsedAmount > maxDeposit) {
+    if (parsedAmount > effectiveMax) {
       return res.status(400).json({
         success: false,
-        message: `Maximum deposit amount is ${maxDeposit} BDT`,
+        message: `Maximum deposit amount is ${effectiveMax} BDT`,
       });
     }
 
