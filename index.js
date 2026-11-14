@@ -19,6 +19,7 @@ const bannerRoutes = require("./routes/bannerRoutes");
 const referralRoutes = require("./routes/referralRoutes");
 const promoCodeRoutes = require("./routes/promoCodeRoutes");
 const notificationRoutes = require("./routes/notificationRoutes");
+const lotteryRoutes = require("./routes/lotteryRoutes");
 
 dotenv.config();
 
@@ -61,6 +62,7 @@ app.use("/api/site-settings", siteSettingRoutes);
 app.use("/api/admin/site-settings", siteSettingRoutes);
 app.use("/api/promocodes", promoCodeRoutes);
 app.use("/api/notifications", notificationRoutes);
+app.use("/api/lottery", lotteryRoutes);
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {

@@ -46,6 +46,11 @@ const siteSettingSchema = new mongoose.Schema(
       default: "support@nexora.io",
       trim: true,
     },
+    contactImage: {
+      type: String,
+      default: "/support-agent.jpg",
+      trim: true,
+    },
     bkashNumber: {
       type: String,
       default: "01316429565",

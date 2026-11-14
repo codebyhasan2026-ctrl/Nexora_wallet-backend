@@ -1,4 +1,8 @@
 const User = require("../models/user");
+const Deposit = require("../models/deposit");
+const Withdraw = require("../models/withdraw");
+const Commission = require("../models/commission");
+const Plan = require("../models/plan");
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 const { uploadToCloudinary, deleteFromCloudinary } = require("../middleware/upload");
@@ -90,14 +94,64 @@ exports.login = async (req, res) => {
 exports.getProfile = async (req, res) => {
   try {
     const user = req.user;
-    if (user.planExpiresAt && new Date(user.planExpiresAt) < new Date() && user.plan && user.plan !== "No Plan") {
+    const now = new Date();
+    if (!Array.isArray(user.purchasedPlans)) {
+      user.purchasedPlans = [];
+    }
+
+    if (
+      user.purchasedPlans.length === 0 &&
+      user.planId &&
+      user.plan &&
+      user.plan !== "No Plan"
+    ) {
+      if (!user.planExpiresAt || new Date(user.planExpiresAt) > now) {
+        user.purchasedPlans.push({
+          planId: user.planId,
+          planName: user.plan,
+          level: "VIP",
+          price: 0,
+          validity: 30,
+          dailyAdsLimit: user.dailyAdsLimit || 2,
+          rewardPerAd: 0.75,
+          purchasedAt: user.createdAt || now,
+          expiresAt: user.planExpiresAt,
+        });
+        await user.save();
+      }
+    }
+
+    const activePlans = user.purchasedPlans.filter(
+      (p) => !p.expiresAt || new Date(p.expiresAt) > now
+    );
+
+    if (activePlans.length === 0 && user.plan && user.plan !== "No Plan") {
       user.plan = "No Plan";
       user.planId = undefined;
       user.planValidity = "Expired";
       user.dailyAdsLimit = 0;
       user.remainTasks = 0;
       await user.save();
+    } else if (activePlans.length > 0) {
+      const totalDailyLimit = activePlans.reduce(
+        (sum, p) => sum + (Number(p.dailyAdsLimit) || 0),
+        0
+      );
+      const combinedPlanName = activePlans.map((p) => p.planName).join(" + ");
+      let needsSave = false;
+      if (user.dailyAdsLimit !== totalDailyLimit) {
+        user.dailyAdsLimit = totalDailyLimit;
+        needsSave = true;
+      }
+      if (user.plan !== combinedPlanName) {
+        user.plan = combinedPlanName;
+        needsSave = true;
+      }
+      if (needsSave) {
+        await user.save();
+      }
     }
+
     if (!user.referralCode) {
       const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
       let code = "NX";
@@ -107,6 +161,103 @@ exports.getProfile = async (req, res) => {
       user.referralCode = code;
       await user.save();
     }
+
+    const approvedDepositAgg = await Deposit.aggregate([
+      { $match: { user: user._id, status: "approved" } },
+      { $group: { _id: null, total: { $sum: "$amount" } } },
+    ]);
+    const totalDepositCalc = Math.max(
+      Number(user.totalDeposit || 0),
+      Number(approvedDepositAgg[0]?.total || 0)
+    );
+    user.totalDeposit = Number(totalDepositCalc.toFixed(2));
+
+    const approvedWithdrawAgg = await Withdraw.aggregate([
+      { $match: { user: user._id, status: "approved" } },
+      { $group: { _id: null, total: { $sum: "$amount" } } },
+    ]);
+    const totalWithdrawCalc = Math.max(
+      Number(user.totalWithdraw || 0),
+      Number(approvedWithdrawAgg[0]?.total || 0)
+    );
+    user.totalWithdraw = Number(totalWithdrawCalc.toFixed(2));
+
+    const pendingDepositAgg = await Deposit.aggregate([
+      { $match: { user: user._id, status: "pending" } },
+      { $group: { _id: null, total: { $sum: "$amount" } } },
+    ]);
+    const pendingInvestCalc = Number(pendingDepositAgg[0]?.total || 0);
+    user.pendingInvest = Number(pendingInvestCalc.toFixed(2));
+
+    const commissionAgg = await Commission.aggregate([
+      { $match: { recipient: user._id } },
+      { $group: { _id: null, total: { $sum: "$amount" } } },
+    ]);
+    const referralEarnCalc = Math.max(
+      Number(user.referralEarn || 0),
+      Number(commissionAgg[0]?.total || 0)
+    );
+    user.referralEarn = Number(referralEarnCalc.toFixed(2));
+
+    const allPlans = await Plan.find().lean();
+    for (const p of user.purchasedPlans) {
+      if (!p.price || Number(p.price) <= 0) {
+        const matched = allPlans.find(
+          (pl) =>
+            (p.planId && pl._id.toString() === p.planId.toString()) ||
+            (p.planName && pl.name.toLowerCase() === p.planName.toLowerCase()) ||
+            (p.level && pl.level && pl.level.toLowerCase() === p.level.toLowerCase())
+        );
+        if (matched && matched.price) {
+          p.price = Number(matched.price);
+        }
+      }
+    }
+
+    let sumPurchased = 0;
+    for (const p of user.purchasedPlans) {
+      sumPurchased += Number(p.price || 0);
+    }
+    if (sumPurchased === 0 && user.plan && user.plan !== "No Plan") {
+      const matched = allPlans.find(
+        (pl) =>
+          (user.planId && pl._id.toString() === user.planId.toString()) ||
+          (user.plan && pl.name.toLowerCase() === user.plan.toLowerCase())
+      );
+      if (matched && matched.price) {
+        sumPurchased = Number(matched.price);
+      }
+    }
+    const totalInvestCalc = Math.max(
+      Number(user.totalInvest || 0),
+      Number(sumPurchased || 0)
+    );
+    user.totalInvest = Number(totalInvestCalc.toFixed(2));
+
+    let lastPlanPrice = 0;
+    if (user.purchasedPlans.length > 0) {
+      lastPlanPrice = Number(
+        user.purchasedPlans[user.purchasedPlans.length - 1]?.price || 0
+      );
+    }
+    if (lastPlanPrice === 0 && user.plan && user.plan !== "No Plan") {
+      const matched = allPlans.find(
+        (pl) =>
+          (user.planId && pl._id.toString() === user.planId.toString()) ||
+          (user.plan && pl.name.toLowerCase() === user.plan.toLowerCase())
+      );
+      if (matched && matched.price) {
+        lastPlanPrice = Number(matched.price);
+      }
+    }
+    const recentInvestCalc =
+      user.recentInvest && Number(user.recentInvest) > 0
+        ? Number(user.recentInvest)
+        : lastPlanPrice;
+    user.recentInvest = Number(recentInvestCalc.toFixed(2));
+
+    await user.save();
+
     return res.status(200).json({
       message: "Profile fetched successfully",
       user,

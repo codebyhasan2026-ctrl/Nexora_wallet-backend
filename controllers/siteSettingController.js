@@ -81,6 +81,7 @@ exports.updateSiteSettings = async (req, res) => {
       "facebookPage",
       "youtubeTutorial",
       "supportEmail",
+      "contactImage",
       "bkashNumber",
       "nagadNumber",
       "depositNotice",
@@ -160,6 +161,39 @@ exports.uploadPopupImage = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: error?.message || "Failed to upload popup image",
+    });
+  }
+};
+
+exports.uploadContactImage = async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        message: "No contact image file provided",
+      });
+    }
+
+    const imageUrl = await uploadToCloudinary(req.file.buffer);
+
+    let settings = await SiteSetting.findOne();
+    if (!settings) {
+      settings = new SiteSetting();
+    }
+
+    settings.contactImage = imageUrl;
+    await settings.save();
+
+    return res.status(200).json({
+      success: true,
+      message: "Contact image uploaded successfully",
+      contactImage: imageUrl,
+      settings,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error?.message || "Failed to upload contact image",
     });
   }
 };

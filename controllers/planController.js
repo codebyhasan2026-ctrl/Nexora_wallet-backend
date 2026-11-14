@@ -128,18 +128,95 @@ exports.purchasePlan = async (req, res) => {
     }
 
     user.balance = Number((user.balance - plan.price).toFixed(2));
-    user.plan = plan.name;
+
+    const now = new Date();
+    if (!Array.isArray(user.purchasedPlans)) {
+      user.purchasedPlans = [];
+    }
+
+    if (
+      user.purchasedPlans.length === 0 &&
+      user.planId &&
+      user.plan &&
+      user.plan !== "No Plan"
+    ) {
+      if (!user.planExpiresAt || new Date(user.planExpiresAt) > now) {
+        user.purchasedPlans.push({
+          planId: user.planId,
+          planName: user.plan,
+          level: "VIP",
+          price: 0,
+          validity: 30,
+          dailyAdsLimit: user.dailyAdsLimit || 2,
+          rewardPerAd: 0.75,
+          purchasedAt: user.createdAt || now,
+          expiresAt: user.planExpiresAt,
+        });
+      }
+    }
+
+    const planDays = Number(plan.validity) || 30;
+    const existingIndex = user.purchasedPlans.findIndex(
+      (p) =>
+        p.planId &&
+        p.planId.toString() === plan._id.toString() &&
+        (!p.expiresAt || new Date(p.expiresAt) > now)
+    );
+
+    if (existingIndex > -1) {
+      const currentExpiry = new Date(
+        user.purchasedPlans[existingIndex].expiresAt || now
+      );
+      const baseDate = currentExpiry > now ? currentExpiry : now;
+      const newExpiry = new Date(
+        baseDate.getTime() + planDays * 24 * 60 * 60 * 1000
+      );
+      user.purchasedPlans[existingIndex].expiresAt = newExpiry;
+      user.purchasedPlans[existingIndex].validity = planDays;
+      user.purchasedPlans[existingIndex].dailyAdsLimit =
+        Number(plan.dailyAdsLimit) || 1;
+      user.purchasedPlans[existingIndex].rewardPerAd =
+        Number(plan.rewardPerAd) || 0;
+      user.purchasedPlans[existingIndex].price = Number(plan.price) || 0;
+      user.purchasedPlans[existingIndex].planName = plan.name;
+      user.purchasedPlans[existingIndex].level = plan.level || "VIP";
+    } else {
+      const expiresAt = new Date(
+        now.getTime() + planDays * 24 * 60 * 60 * 1000
+      );
+      user.purchasedPlans.push({
+        planId: plan._id,
+        planName: plan.name,
+        level: plan.level || "VIP",
+        price: Number(plan.price) || 0,
+        validity: planDays,
+        dailyAdsLimit: Number(plan.dailyAdsLimit) || 1,
+        rewardPerAd: Number(plan.rewardPerAd) || 0,
+        purchasedAt: now,
+        expiresAt: expiresAt,
+      });
+    }
+
+    const activePlans = user.purchasedPlans.filter(
+      (p) => !p.expiresAt || new Date(p.expiresAt) > now
+    );
+
+    const totalDailyLimit = activePlans.reduce(
+      (sum, p) => sum + (Number(p.dailyAdsLimit) || 0),
+      0
+    );
+
+    user.dailyAdsLimit = totalDailyLimit;
+    user.remainTasks = totalDailyLimit;
+    user.plan = activePlans.map((p) => p.planName).join(" + ");
     user.planId = plan._id;
-    user.planValidity = `${plan.validity} Days`;
-
-    const expiresAt = new Date();
-    expiresAt.setDate(expiresAt.getDate() + Number(plan.validity || 30));
-    user.planExpiresAt = expiresAt;
-
-    user.dailyAdsLimit = plan.dailyAdsLimit;
-    user.remainTasks = plan.dailyAdsLimit;
-    user.completeTasks = 0;
-    user.lastTaskResetDate = new Date().toISOString().slice(0, 10);
+    user.planValidity = `${planDays} Days`;
+    user.totalInvest = Number(((user.totalInvest || 0) + Number(plan.price)).toFixed(2));
+    user.recentInvest = Number(Number(plan.price).toFixed(2));
+    user.planExpiresAt =
+      activePlans.length > 0
+        ? activePlans[activePlans.length - 1].expiresAt
+        : new Date(now.getTime() + planDays * 24 * 60 * 60 * 1000);
 
     await user.save();
 
@@ -150,11 +227,15 @@ exports.purchasePlan = async (req, res) => {
         balance: user.balance,
         plan: user.plan,
         planId: user.planId,
+        purchasedPlans: user.purchasedPlans,
+        activePlans,
         planValidity: user.planValidity,
         planExpiresAt: user.planExpiresAt,
         dailyAdsLimit: user.dailyAdsLimit,
         remainTasks: user.remainTasks,
         completeTasks: user.completeTasks,
+        totalInvest: user.totalInvest,
+        recentInvest: user.recentInvest,
       },
     });
   } catch (error) {

@@ -14,6 +14,10 @@ const userSchema = new mongoose.Schema(
     balance: { type: Number, default: 0 },
     totalDeposit: { type: Number, default: 0 },
     totalWithdraw: { type: Number, default: 0 },
+    totalInvest: { type: Number, default: 0 },
+    recentInvest: { type: Number, default: 0 },
+    pendingInvest: { type: Number, default: 0 },
+    referralEarn: { type: Number, default: 0 },
 
     plan: { type: String, default: "No Plan" },
     planId: { type: mongoose.Schema.Types.ObjectId, ref: "Plan" },
@@ -23,6 +27,20 @@ const userSchema = new mongoose.Schema(
     completeTasks: { type: Number, default: 0 },
     remainTasks: { type: Number, default: 0 },
     lastTaskResetDate: { type: String, default: "" },
+
+    purchasedPlans: [
+      {
+        planId: { type: mongoose.Schema.Types.ObjectId, ref: "Plan" },
+        planName: { type: String },
+        level: { type: String },
+        price: { type: Number },
+        validity: { type: Number },
+        dailyAdsLimit: { type: Number },
+        rewardPerAd: { type: Number },
+        purchasedAt: { type: Date, default: Date.now },
+        expiresAt: { type: Date },
+      },
+    ],
 
     referralCode: { type: String },
     referredBy: { type: String },

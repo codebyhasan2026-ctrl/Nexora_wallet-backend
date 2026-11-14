@@ -64,23 +64,51 @@ exports.getTasks = async (req, res) => {
       return res.status(404).json({ success: false, message: "User not found" });
     }
 
-    let userPlanId = user.planId;
-    if (!userPlanId && user.plan && user.plan !== "No Plan") {
-      const matchedPlan = await Plan.findOne({
-        $or: [{ name: user.plan }, { level: user.plan }],
-      });
-      if (matchedPlan) {
-        userPlanId = matchedPlan._id;
-        user.planId = matchedPlan._id;
-        user.dailyAdsLimit = matchedPlan.dailyAdsLimit;
+    const now = new Date();
+    if (!Array.isArray(user.purchasedPlans)) {
+      user.purchasedPlans = [];
+    }
+
+    if (
+      user.purchasedPlans.length === 0 &&
+      user.planId &&
+      user.plan &&
+      user.plan !== "No Plan"
+    ) {
+      if (!user.planExpiresAt || new Date(user.planExpiresAt) > now) {
+        user.purchasedPlans.push({
+          planId: user.planId,
+          planName: user.plan,
+          level: "VIP",
+          price: 0,
+          validity: 30,
+          dailyAdsLimit: user.dailyAdsLimit || 2,
+          rewardPerAd: 0.75,
+          purchasedAt: user.createdAt || now,
+          expiresAt: user.planExpiresAt,
+        });
         await user.save();
       }
     }
 
-    if (!userPlanId || !user.plan || user.plan === "No Plan") {
+    const activePlans = user.purchasedPlans.filter(
+      (p) => !p.expiresAt || new Date(p.expiresAt) > now
+    );
+
+    if (activePlans.length === 0) {
+      if (user.plan && user.plan !== "No Plan") {
+        user.plan = "No Plan";
+        user.planId = undefined;
+        user.planValidity = "Expired";
+        user.dailyAdsLimit = 0;
+        user.remainTasks = 0;
+        await user.save();
+      }
+
       return res.status(200).json({
         success: true,
         hasActivePlan: false,
+        isExpired: user.planValidity === "Expired",
         message: "No active membership plan. Please purchase a VIP plan.",
         availableTasks: [],
         completedTasks: [],
@@ -94,35 +122,15 @@ exports.getTasks = async (req, res) => {
       });
     }
 
-    if (user.planExpiresAt && new Date(user.planExpiresAt) < new Date()) {
-      user.plan = "No Plan";
-      user.planId = undefined;
-      user.planValidity = "Expired";
-      user.dailyAdsLimit = 0;
-      user.remainTasks = 0;
-      await user.save();
-
-      return res.status(200).json({
-        success: true,
-        hasActivePlan: false,
-        isExpired: true,
-        message: "Your membership plan has expired. Please renew your plan.",
-        availableTasks: [],
-        completedTasks: [],
-        stats: {
-          plan: "No Plan",
-          dailyLimit: 0,
-          completedCount: 0,
-          remainingCount: 0,
-          balance: user.balance || 0,
-        },
-      });
-    }
+    const activePlanIds = activePlans.map((p) => p.planId).filter(Boolean);
 
     const allPlanTasks = await Ad.find({
-      plan: userPlanId,
+      plan: { $in: activePlanIds },
       isActive: true,
-    }).sort({ createdAt: 1 }).lean();
+    })
+      .populate("plan", "name level dailyAdsLimit rewardPerAd")
+      .sort({ createdAt: 1 })
+      .lean();
 
     const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
@@ -156,15 +164,21 @@ exports.getTasks = async (req, res) => {
       }
     });
 
+    const totalDailyLimit = activePlans.reduce(
+      (sum, p) => sum + (Number(p.dailyAdsLimit) || 0),
+      0
+    );
+
     return res.status(200).json({
       success: true,
       hasActivePlan: true,
-      plan: user.plan,
+      plan: activePlans.map((p) => p.planName).join(" + "),
+      activePlans,
       availableTasks,
       completedTasks,
       stats: {
-        plan: user.plan,
-        dailyLimit: user.dailyAdsLimit || allPlanTasks.length,
+        plan: activePlans.map((p) => p.planName).join(" + "),
+        dailyLimit: totalDailyLimit || allPlanTasks.length,
         totalPlanTasks: allPlanTasks.length,
         availableCount: availableTasks.length,
         completed24hCount: completedTasks.length,
@@ -194,17 +208,41 @@ exports.completeTask = async (req, res) => {
       return res.status(404).json({ success: false, message: "User not found" });
     }
 
-    if (!user.plan || user.plan === "No Plan") {
-      return res.status(400).json({
-        success: false,
-        message: "You must purchase a membership plan before performing tasks.",
-      });
+    const now = new Date();
+    if (!Array.isArray(user.purchasedPlans)) {
+      user.purchasedPlans = [];
     }
 
-    if (user.planExpiresAt && new Date(user.planExpiresAt) < new Date()) {
+    if (
+      user.purchasedPlans.length === 0 &&
+      user.planId &&
+      user.plan &&
+      user.plan !== "No Plan"
+    ) {
+      if (!user.planExpiresAt || new Date(user.planExpiresAt) > now) {
+        user.purchasedPlans.push({
+          planId: user.planId,
+          planName: user.plan,
+          level: "VIP",
+          price: 0,
+          validity: 30,
+          dailyAdsLimit: user.dailyAdsLimit || 2,
+          rewardPerAd: 0.75,
+          purchasedAt: user.createdAt || now,
+          expiresAt: user.planExpiresAt,
+        });
+        await user.save();
+      }
+    }
+
+    const activePlans = user.purchasedPlans.filter(
+      (p) => !p.expiresAt || new Date(p.expiresAt) > now
+    );
+
+    if (activePlans.length === 0) {
       return res.status(400).json({
         success: false,
-        message: "Your membership plan has expired. Please renew your plan.",
+        message: "You must have an active membership plan to perform tasks.",
       });
     }
 
@@ -216,23 +254,15 @@ exports.completeTask = async (req, res) => {
       });
     }
 
-    let userPlanId = user.planId;
-    if (!userPlanId) {
-      const matchedPlan = await Plan.findOne({
-        $or: [{ name: user.plan }, { level: user.plan }],
-      });
-      if (matchedPlan) {
-        userPlanId = matchedPlan._id;
-        user.planId = matchedPlan._id;
-        await user.save();
-      }
-    }
+    const taskPlanId = (task.plan?._id || task.plan)?.toString();
+    const isPlanOwned = activePlans.some(
+      (p) => p.planId && p.planId.toString() === taskPlanId
+    );
 
-    const taskPlanId = task.plan?._id || task.plan;
-    if (userPlanId && taskPlanId && taskPlanId.toString() !== userPlanId.toString()) {
+    if (!isPlanOwned) {
       return res.status(403).json({
         success: false,
-        message: "This task does not belong to your active membership plan tier.",
+        message: "This task does not belong to any of your active membership plans.",
       });
     }
 
@@ -253,15 +283,20 @@ exports.completeTask = async (req, res) => {
       });
     }
 
-    const dailyLimit = Number(user.dailyAdsLimit) || (task.plan?.dailyAdsLimit ? Number(task.plan.dailyAdsLimit) : 2);
+    const totalDailyLimit = activePlans.reduce(
+      (sum, p) => sum + (Number(p.dailyAdsLimit) || 0),
+      0
+    );
+
     const todayCount = await TaskCompletion.countDocuments({
       user: userId,
       completedAt: { $gte: twentyFourHoursAgo },
     });
-    if (todayCount >= dailyLimit) {
+
+    if (todayCount >= totalDailyLimit) {
       return res.status(400).json({
         success: false,
-        message: "You have already reached your daily task limit for your plan.",
+        message: "You have already reached your daily task limit for all active plans.",
       });
     }
 
@@ -280,7 +315,7 @@ exports.completeTask = async (req, res) => {
 
     return res.status(200).json({
       success: true,
-      message: `Task completed successfully! +$${reward.toFixed(2)} USDT added to your wallet.`,
+      message: `Task completed successfully! +৳${reward.toFixed(2)} added to your wallet.`,
       reward,
       link: task.link,
       user: {
